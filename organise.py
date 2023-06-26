@@ -34,8 +34,7 @@ def getDateTimeOrginalFromExif(file_path):
 
 def hasGpsDataInExif(file_path):
     try:
-        image = Image.open(file_path)
-        exif_data = image.getexif()
+        exif_data = get_exif(file_path)
         for tag_id in exif_data:
             tag = TAGS.get(tag_id, tag_id)
             if tag == 'GPSInfo':
@@ -202,6 +201,9 @@ def organise(root_folder):
                 smart_copy(file_path, destination_folder)
 
 if __name__ == "__main__":
+
+    #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
+    #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
     rootFolder = sys.argv[1]
     if os.path.exists(rootFolder):
         organise(rootFolder)
