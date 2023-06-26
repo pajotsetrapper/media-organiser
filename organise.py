@@ -57,7 +57,7 @@ def has_similar_filesize(file1_path, file2_path):
         return False
 
 def has_same_datetime_in_exif(photo1_path, photo2_path):
-    print("\nChecking if {} and {} have a the same date/time in exif".format(photo1_path, photo2_path))
+    print("\nChecking if {} and {} have the same date/time in exif".format(photo1_path, photo2_path))
     try:
         exifDateTime1 = getDateTimeOrginalFromExif(photo1_path)
         exifDateTime2 = getDateTimeOrginalFromExif(photo2_path)
