@@ -204,11 +204,11 @@ if __name__ == "__main__":
 
     #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
     #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
-    print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4842.JPG"))
-    print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
+    #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4842.JPG"))
+    #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
     
 
-"""
+
     rootFolder = sys.argv[1]
     if os.path.exists(rootFolder):
         organise(rootFolder)
@@ -221,4 +221,4 @@ if __name__ == "__main__":
                 file.write("\n# renamed files (same hash & filename): {}".format(duplicateNameDifferentHashCount))
     else:
         print ("Folder {} does not exist, exiting".format(rootFolder))
-        """
+
