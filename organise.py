@@ -57,13 +57,13 @@ def has_similar_filesize(file1_path, file2_path):
         return False
 
 def has_same_datetime_in_exif(photo1_path, photo2_path):
-    print("\nChecking if {} and {} have a similar size".format(photo1_path, photo2_path))
+    print("\nChecking if {} and {} have a the same date/time in exif".format(photo1_path, photo2_path))
     try:
         exifDateTime1 = getDateTimeOrginalFromExif(photo1_path)
         exifDateTime2 = getDateTimeOrginalFromExif(photo2_path)
-        if date_time1 == date_time2:
+        if exifDateTime1 == exifDateTime2:
             print("\nSame date/time in exif for {}-{}".format(photo1_path, photo2_path))
-        return date_time1 == date_time2
+        return exifDateTime1 == exifDateTime2
     except:
         print("\n---> Not an image -> Could not parse exif")
         return False
@@ -204,6 +204,11 @@ if __name__ == "__main__":
 
     #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
     #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
+    print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4842.JPG"))
+    print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
+    
+
+"""
     rootFolder = sys.argv[1]
     if os.path.exists(rootFolder):
         organise(rootFolder)
@@ -216,3 +221,4 @@ if __name__ == "__main__":
                 file.write("\n# renamed files (same hash & filename): {}".format(duplicateNameDifferentHashCount))
     else:
         print ("Folder {} does not exist, exiting".format(rootFolder))
+        """
