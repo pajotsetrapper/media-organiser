@@ -1,38 +1,37 @@
-import os
-import sys
-import shutil
-import hashlib
-import subprocess
-import ffmpeg
+import os, sys, shutil, hashlib
 from datetime import datetime
-from PIL import Image, ExifTags
+from PIL import Image
 from PIL.ExifTags import TAGS
+import ffmpeg
 
 logFile = None
-duplicateNameDifferentHashCount = 0
-duplicateFileCount = 0
-potentialDuplicateFileCountSameTimestampSimilarSize = 0
-potentialDuplicateFileCount = 0 #Same filename, different hash but filesize deviates max 4kb
-files_processed = 0
-images_processed = 0
-others_processed = 0
 
-def get_exif(filename):
-    """
-    Returns the exif header of a media file
-    """
-    image = Image.open(filename)
+file_count = 0
+duplicate_count = 0
+potential_duplicate_count = 0
+
+"""Returns the exif header of an image file
+@param file_path: fully qualified path name
+@raise Exception: wildcard exception
+"""
+def get_exif(file_path):
+    image = Image.open(file_path)
     image.verify()
     return image._getexif()
 
-def getDateTimeOrginalFromExif(file_path):
+def get_timestamp_from_exif(file_path):
     exif = get_exif(file_path)
     for key, value in exif.items():
         name = TAGS.get(key, key)
         if name == 'DateTimeOriginal':
             return value
+        
+def get_timestamp_from_video_metadata(file_path):
+    #Requires ffmpeg to be installed & its bin folder to be part of the $PATH
+    date_time_filmed = ffmpeg.probe(file_path)["streams"][0]["tags"]["creation_time"]
+    return date_time_filmed
 
-def hasGpsDataInExif(file_path):
+def exif_header_contains_geolocation(file_path):
     try:
         exif_data = get_exif(file_path)
         for tag_id in exif_data:
@@ -43,32 +42,28 @@ def hasGpsDataInExif(file_path):
         pass
     return False
 
-def has_similar_filesize(file1_path, file2_path):
+
+def has_similar_filesize(file1_path, file2_path, max_size_difference_bytes=8192):
     """
-    This method uses the os.path.getsize() function to get the size of each file in bytes and then compares the difference between them to 4KB (4096 bytes).
-    If the difference is less than 4KB, it returns True; otherwise, it returns False.
+    This method uses the os.path.getsize() function to get the size of each file in bytes and then compares the difference between them.
+    If the difference is less than max_size_difference_bytes bytes, it returns True; otherwise, it returns False.
     Using this to mark images with same filename & size difference <4kb as being duplicates potentially
     """
-    if (abs(os.path.getsize(file1_path) - os.path.getsize(file2_path)) < 8192):
-        print("\nFile size difference between 2 images < 8192 bytes")
-        return True
-    else:
-        print("\nFile size difference between 2 images > 8192 bytes, more than header must be different")
-        return False
+    return ((abs(os.path.getsize(file1_path) - os.path.getsize(file2_path))) < max_size_difference_bytes)        
 
-def has_same_datetime_in_exif(photo1_path, photo2_path):
-    print("\nChecking if {} and {} have the same date/time in exif".format(photo1_path, photo2_path))
+def has_same_datetime_in_exif(file1_path, file2_path):
+    print("\nChecking if {} and {} have the same date/time in exif".format(file1_path, file2_path))
     try:
-        exifDateTime1 = getDateTimeOrginalFromExif(photo1_path)
-        exifDateTime2 = getDateTimeOrginalFromExif(photo2_path)
-        if exifDateTime1 == exifDateTime2:
-            print("\nSame date/time in exif for {}-{}".format(photo1_path, photo2_path))
-        return exifDateTime1 == exifDateTime2
+        exif_date_time_1 = get_timestamp_from_exif(file1_path)
+        exif_date_time_2 = get_timestamp_from_exif(file2_path)
+        if exif_date_time_1 == exif_date_time_2:
+            print("\nSame date/time in exif for {}-{}".format(file1_path, file2_path))
+        return exif_date_time_1 == exif_date_time_2
     except:
-        print("\n---> Not an image -> Could not parse exif")
+        #TODO - as backup - check for video's here as well - using ffprobe?
         return False
 
-def get_year_month_taken(filename):
+def get_year_month_taken(file_path):
     """
     Returns a (year, month) tuple with the year/month the media file was created. Obtaining this info
     in the following order of attempts
@@ -81,36 +76,33 @@ def get_year_month_taken(filename):
     month = None
     #1st attempt, get the exif header & parse DateTimeOriginal
     try:
-        exifDateTime = getDateTimeOrginalFromExif(filename)
-        year = exifDateTime.split(':')[0]
-        month = exifDateTime.split(':')[1]
+        date_time_taken = get_timestamp_from_exif(file_path)
+        year = date_time_taken.split(':')[0]
+        month = date_time_taken.split(':')[1]
         return (year, month)
     except:
         pass
 
     #No exif header with date found, try getting created date using ffmpeg
     #uses ffprobe command to extract all possible metadata from the media file
-    try:
-        #Requires ffmpeg to be installed & its bin folder to be part of the $PATH
-        creationTime = ffmpeg.probe(filename)["streams"][0]["tags"]["creation_time"].split("-")
-        year = creationTime[0]
-        month = creationTime[1]
+    try:        
+        date_time_filmed = get_timestamp_from_video_metadata(file_path)        
+        year = date_time_filmed.split("-")[0]
+        month = date_time_filmed.split("-")[1]
         return (year, month)
     except:
         pass
 
     #Could not get the creation month from exif or video header, use file creation date:
-    date_created = datetime.fromtimestamp(os.path.getmtime(filename))
-    year = date_created.strftime("%Y")
-    month = date_created.strftime("%m")
+    date_time_file_creation = datetime.fromtimestamp(os.path.getmtime(file_path))
+    year = date_time_file_creation.strftime("%Y")
+    month = date_time_file_creation.strftime("%m")
     return (year, month + "-date-uncertain")
 
-def smart_copy(file_path, target_folder):
-    global duplicateNameDifferentHashCount
-    global duplicateFileCount
-    global potentialDuplicateFileCountSameTimestampSimilarSize
-    global potentialDuplicateFileCount
+def smart_copy(file_path, target_folder):    
     global logFile
+    global duplicate_count
+    global potential_duplicate_count
     file_name = os.path.basename(file_path)
     target_file_path = os.path.join(target_folder, file_name)
 
@@ -125,25 +117,24 @@ def smart_copy(file_path, target_folder):
             target_file_hash = hashlib.md5(f.read()).hexdigest()
 
         if file_hash == target_file_hash: #Same has, file that exists in target is identical => don't copy
-            with open(logFile, 'a') as file:
+            duplicate_count += 1
+            with open(logFile, 'a') as file:                
                 file.write("Duplicate with same hash;{};{};skipped\n".format(file_name, target_folder))
-            duplicateFileCount+=1
             return
 
         else: #Doing some more checks / adding some suffixes to facilitate triage
-            duplicateNameDifferentHashCount+=1
             suffix="_u"
-
             if (has_same_datetime_in_exif(file_path, target_file_path) and has_similar_filesize(file_path, target_file_path)):
+                duplicate_count += 1
                 #Exact same timestamp in exif & very similat file-size -> must be a duplicate as well (with some header information altered (e.g. face-tags, geotag))
                 #Ensuring to keep the file with geolocation data
-                potentialDuplicateFileCountSameTimestampSimilarSize+=1
-                if hasGpsDataInExif(target_file_path):
+                
+                if exif_header_contains_geolocation(target_file_path):
                     with open(logFile, 'a') as file:
                         file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Target already has gps data;{};{};skipped\n".format(file_name, target_folder))
                     return
                 else:
-                    if hasGpsDataInExif(file_path):
+                    if exif_header_contains_geolocation(file_path):
                         with open(logFile, 'a') as file:
                             file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_name, target_folder))
                         shutil.copy(file_path, target_file_path)
@@ -151,9 +142,9 @@ def smart_copy(file_path, target_folder):
 
             else:
                 if has_similar_filesize(file_path, target_file_path):
-                    suffix+="d" #Flags a file as being potentially being a duplicate
-                    potentialDuplicateFileCount+=1
-            suffix += str(potentialDuplicateFileCount)
+                    potential_duplicate_count+=1
+                    suffix+="d" #Flags a file as being potentially being a duplicate                    
+            suffix += str(potential_duplicate_count)
             fn, ext = os.path.splitext(file_name)
             newFn = fn + suffix + ext
             new_target_file_path = os.path.join(target_folder, newFn)
@@ -163,13 +154,13 @@ def smart_copy(file_path, target_folder):
 
 
 def organise(root_folder):
-    global files_processed
-    global images_processed
-    global others_processed
     global logFile
+    global file_count
+    global duplicate_count
+    global potential_duplicate_count
+    image_file_extensions = ('jpg', 'jpeg', 'heic')
 
     print(root_folder)
-    #organised_folder = root_folder + "-organised"
     organised_folder = "G:\\2013-fotos-video-organised"
 
     if not os.path.exists(organised_folder):
@@ -180,12 +171,11 @@ def organise(root_folder):
 
     for subdir, dirs, files in os.walk(root_folder):
         for file in files:
-            files_processed+=1
+            file_count+=1
             file_path = os.path.join(subdir, file)
             (year_folder, month_folder) = get_year_month_taken(file_path)
             if (file.lower().endswith(".jpg")):
                 print("P", end="")
-                images_processed+=1
                 destination_folder = os.path.join(organised_folder, year_folder, "photos", month_folder)
                 if not os.path.exists(destination_folder):
                     os.makedirs(destination_folder)
@@ -193,7 +183,6 @@ def organise(root_folder):
 
             else: #Also copy over non-jpg files (video etc)
                 print("M", end="")
-                others_processed+=1
                 year_folder, month_folder = get_year_month_taken(file_path)
                 destination_folder = os.path.join(organised_folder, year_folder , "movies", month_folder)
                 if not os.path.exists(destination_folder):
@@ -202,23 +191,17 @@ def organise(root_folder):
 
 if __name__ == "__main__":
 
-    #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
-    #print(hasGpsDataInExif("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
+    #print(exif_header_contains_geolocation("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
+    #print(exif_header_contains_geolocation("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
     #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4842.JPG"))
     #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
-    
-
 
     rootFolder = sys.argv[1]
     if os.path.exists(rootFolder):
         organise(rootFolder)
         with open(logFile, 'a') as file:
-                file.write("# files processed: {}".format(files_processed))
-                file.write("\n#   -> images: {}".format(images_processed))
-                file.write("\n#   -> other: {}".format(others_processed))
-                file.write("\n# duplicate files: {}".format(duplicateFileCount))
-                file.write("\n# nearly identical files, sufficently identical to skip/replace: {}".format(potentialDuplicateFileCountSameTimestampSimilarSize))
-                file.write("\n# renamed files (same hash & filename): {}".format(duplicateNameDifferentHashCount))
+                file.write("# files processed: {}".format(file_count))
+                file.write("\n# duplicate files: {}".format(duplicate_count))
+                file.write("\n# potentially duplicate files: {}".format(potential_duplicate_count))
     else:
         print ("Folder {} does not exist, exiting".format(rootFolder))
-
