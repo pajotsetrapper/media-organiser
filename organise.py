@@ -5,99 +5,152 @@ from PIL.ExifTags import TAGS
 import ffmpeg
 
 logFile = None
-
 file_count = 0
 duplicate_count = 0
 potential_duplicate_count = 0
 
-"""Returns the exif header of an image file
-@param file_path: fully qualified path name
-@raise Exception: wildcard exception
-"""
-def get_exif(file_path):
+def _get_exif(file_path):
+    """_summary_
+
+    Args:
+        file_path (string): fully qualified name of the file
+
+    Returns:
+        _type_: the exif data of the file
+    """
     image = Image.open(file_path)
     image.verify()
     return image._getexif()
 
-def get_timestamp_from_exif(file_path):
-    exif = get_exif(file_path)
+def _get_timestamp_from_exif(file_path):
+    exif = _get_exif(file_path)
     for key, value in exif.items():
         name = TAGS.get(key, key)
         if name == 'DateTimeOriginal':
             return value
         
-def get_timestamp_from_video_metadata(file_path):
-    #Requires ffmpeg to be installed & its bin folder to be part of the $PATH
-    date_time_filmed = ffmpeg.probe(file_path)["streams"][0]["tags"]["creation_time"]
-    return date_time_filmed
+def _get_timestamp_from_video_metadata(file_path):
+    """Tries to obtain a timestamp from metadata available in a media file.
+    Requires ffmpeg to be installed & its path to be in the $PATH env variable of your OS.
+
+    Args:
+        file_path (string): fully qualified name of the file
+
+    Returns:
+        string: raw timestamp obtained using ffmpeg
+    """    
+    raw_timestamp = ffmpeg.probe(file_path)["streams"][0]["tags"]["creation_time"]
+    return raw_timestamp
+
+def get_timestamp_from_metadata(file_path):
+    """Gets the timestamp from either the exif header in an image, or from  the header of a video file.
+
+    Args:
+        file_path (string): fully qualified name of the file
+        
+    Returns:
+        string: timestamp in format yyyy:mm:dd-hh:mm:ss
+    """
+    # TODO : add support for heic as well, may need to refactor to use pillow iso PIL
+    image_extentions = ('.jpg', '.jpeg')
+    ext = os.path.splitext(file_path)[1].lower()
+    timestamp_raw = None
+    timestamp_formatted = None
+    try:
+        if ext in image_extentions:
+            timestamp_raw = _get_timestamp_from_exif(file_path)
+            timestamp_formatted = timestamp_raw.replace(' ', '-')
+        else:
+            timestamp_raw = _get_timestamp_from_video_metadata(file_path)
+            timestamp_formatted = timestamp_raw.split('.')[0].replace('-',':').replace('T','-')
+    except Exception:
+        pass # No timestamp available    
+    
+    return timestamp_formatted
 
 def exif_header_contains_geolocation(file_path):
     try:
-        exif_data = get_exif(file_path)
+        exif_data = _get_exif(file_path)
         for tag_id in exif_data:
             tag = TAGS.get(tag_id, tag_id)
             if tag == 'GPSInfo':
                 return True
-    except:
+    except Exception:
         pass
     return False
 
 
-def has_similar_filesize(file1_path, file2_path, max_size_difference_bytes=8192):
+def has_same_hash(file1_path, file2_path):
+    """_summary_
+
+    Args:
+        file1_path (string): fully qualified name of the file
+        file2_path (string): fully qualified name of the file
+
+    Returns:
+        boolean: True if both files have the same md5 hash, False otherwise
     """
-    This method uses the os.path.getsize() function to get the size of each file in bytes and then compares the difference between them.
-    If the difference is less than max_size_difference_bytes bytes, it returns True; otherwise, it returns False.
-    Using this to mark images with same filename & size difference <4kb as being duplicates potentially
+    with open(file1_path, 'rb') as f:
+        file1_hash = hashlib.md5(f.read()).hexdigest()
+    with open(file2_path, 'rb') as f:
+        file2_hash = hashlib.md5(f.read()).hexdigest()
+    return (file1_hash == file2_hash) 
+
+def has_similar_filesize(file1_path, file2_path, max_size_difference_bytes=8192):
+    """Check if 2 sizes have similar filesize (configurable max delta)
+    
+    Args:
+        file1_path (string): fully qualified name of the file
+        file2_path (string): fully qualified name of the file
+        max_size_difference_bytes (int, optional): max size difference, expressed in bytes. Defaults to 8192.
+
+    Returns:
+        boolean: True=similar size, False if file-sizes differ > max_size_difference_bytes
     """
     return ((abs(os.path.getsize(file1_path) - os.path.getsize(file2_path))) < max_size_difference_bytes)        
 
-def has_same_datetime_in_exif(file1_path, file2_path):
-    print("\nChecking if {} and {} have the same date/time in exif".format(file1_path, file2_path))
-    try:
-        exif_date_time_1 = get_timestamp_from_exif(file1_path)
-        exif_date_time_2 = get_timestamp_from_exif(file2_path)
-        if exif_date_time_1 == exif_date_time_2:
-            print("\nSame date/time in exif for {}-{}".format(file1_path, file2_path))
-        return exif_date_time_1 == exif_date_time_2
-    except:
-        #TODO - as backup - check for video's here as well - using ffprobe?
-        return False
+def has_same_timestamp_in_metadata(file1_path, file2_path):
+    """Check if 2 files have the same timestamp in their metadata
+
+    Args:
+        file1_path (_type_): _description_
+        file2_path (_type_): _description_
+
+    Returns:
+        boolean: boolean indicating if the 2 files have the same timestamp in their metadata.
+    """
+    file1_timestamp = get_timestamp_from_metadata(file1_path)
+    file2_timestamp = get_timestamp_from_metadata(file2_path)
+    if ((file1_timestamp==None) or (file2_timestamp == None)):
+        return False #There is no metadata, so cannot compare -> return False
+    
+    return file1_timestamp == file2_timestamp
 
 def get_year_month_taken(file_path):
     """
-    Returns a (year, month) tuple with the year/month the media file was created. Obtaining this info
+    Returns a (year, month) tuple of strings indicating the year/month the media file was created in.
+    Obtaining this info
     in the following order of attempts
-    1/ Reading exif header
-    2/ Using ffprobe to get the this date
-    3/ As fallback, taking the created date of the file itself
+    1/ Read the creation date / time from metadata (exif, video header) - this is accurate    
+    2/ As fallback, taking the created date of the file itself (in that case, the month string will contain a suffix '-date-uncertain')
     @param: filename complete path to the media files you want to get the created date for
     """
     year = None
     month = None
-    #1st attempt, get the exif header & parse DateTimeOriginal
-    try:
-        date_time_taken = get_timestamp_from_exif(file_path)
-        year = date_time_taken.split(':')[0]
-        month = date_time_taken.split(':')[1]
+    
+    timestamp = get_timestamp_from_metadata(file_path)
+    
+    if (timestamp is not None):
+        year = timestamp.split(':')[0]
+        month = timestamp.split(':')[1]
         return (year, month)
-    except:
-        pass
-
-    #No exif header with date found, try getting created date using ffmpeg
-    #uses ffprobe command to extract all possible metadata from the media file
-    try:        
-        date_time_filmed = get_timestamp_from_video_metadata(file_path)        
-        year = date_time_filmed.split("-")[0]
-        month = date_time_filmed.split("-")[1]
-        return (year, month)
-    except:
-        pass
-
-    #Could not get the creation month from exif or video header, use file creation date:
-    date_time_file_creation = datetime.fromtimestamp(os.path.getmtime(file_path))
-    year = date_time_file_creation.strftime("%Y")
-    month = date_time_file_creation.strftime("%m")
-    return (year, month + "-date-uncertain")
+    
+    else:
+        #Could not get a timestamp in the metadata, fallback to file creation date:
+        date_time_file_creation = datetime.fromtimestamp(os.path.getmtime(file_path))
+        year = date_time_file_creation.strftime("%Y")
+        month = date_time_file_creation.strftime("%m")
+        return (year, month + "-date-uncertain")
 
 def smart_copy(file_path, target_folder):    
     global logFile
@@ -108,49 +161,43 @@ def smart_copy(file_path, target_folder):
 
     if not os.path.exists(target_file_path):
         shutil.copy(file_path, target_file_path)
+        return #done
+    
+    if has_same_hash(file_path, target_file_path): #Same has, file that exists in target is identical => don't copy
+        duplicate_count += 1
+        with open(logFile, 'a') as file:
+            file.write("Duplicate with same hash;{};{};skipped\n".format(file_name, target_folder))            
+        return
 
-    else: # A file with the same name already exists in destination
-        with open(file_path, 'rb') as f:
-            file_hash = hashlib.md5(f.read()).hexdigest()
-
-        with open(target_file_path, 'rb') as f:
-            target_file_hash = hashlib.md5(f.read()).hexdigest()
-
-        if file_hash == target_file_hash: #Same has, file that exists in target is identical => don't copy
-            duplicate_count += 1
-            with open(logFile, 'a') as file:                
-                file.write("Duplicate with same hash;{};{};skipped\n".format(file_name, target_folder))
-            return
-
-        else: #Doing some more checks / adding some suffixes to facilitate triage
-            suffix="_u"
-            if (has_same_datetime_in_exif(file_path, target_file_path) and has_similar_filesize(file_path, target_file_path)):
-                duplicate_count += 1
-                #Exact same timestamp in exif & very similat file-size -> must be a duplicate as well (with some header information altered (e.g. face-tags, geotag))
-                #Ensuring to keep the file with geolocation data
-                
-                if exif_header_contains_geolocation(target_file_path):
-                    with open(logFile, 'a') as file:
-                        file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Target already has gps data;{};{};skipped\n".format(file_name, target_folder))
-                    return
-                else:
-                    if exif_header_contains_geolocation(file_path):
-                        with open(logFile, 'a') as file:
-                            file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_name, target_folder))
-                        shutil.copy(file_path, target_file_path)
-                        return
-
-            else:
-                if has_similar_filesize(file_path, target_file_path):
-                    potential_duplicate_count+=1
-                    suffix+="d" #Flags a file as being potentially being a duplicate                    
-            suffix += str(potential_duplicate_count)
-            fn, ext = os.path.splitext(file_name)
-            newFn = fn + suffix + ext
-            new_target_file_path = os.path.join(target_folder, newFn)
-            shutil.copy(file_path, new_target_file_path)
+    #Hash if different, but media file could still be duplicate aside from metadata => doing some more checks / adding some suffixes to facilitate triage
+    suffix="_u"
+    if (has_same_timestamp_in_metadata(file_path, target_file_path) and has_similar_filesize(file_path, target_file_path)):
+        duplicate_count += 1
+        #Exact same timestamp in exif & very similar file-size
+        # -> must be a duplicate except for metadata (e.g. face-tags, geotag))
+        # -> ensuring to keep the file with geolocation data only
+        
+        if exif_header_contains_geolocation(target_file_path):
             with open(logFile, 'a') as file:
-                file.write("Identical name, different hash;{};{};copied with suffix\n".format(file_name, new_target_file_path))
+                file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Target already has gps data;{};{};skipped\n".format(file_name, target_folder))
+            return
+        else:
+            if exif_header_contains_geolocation(file_path):
+                with open(logFile, 'a') as file:
+                    file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_name, target_folder))
+                shutil.copy(file_path, target_file_path)
+                return
+    else:
+        if has_similar_filesize(file_path, target_file_path):
+            potential_duplicate_count+=1
+            suffix+="d" #Flags a file as being potentially being a duplicate                    
+    suffix += str(potential_duplicate_count)
+    fn, ext = os.path.splitext(file_name)
+    new_filename = fn + suffix + ext
+    new_target_file_path = os.path.join(target_folder, new_filename)
+    shutil.copy(file_path, new_target_file_path)
+    with open(logFile, 'a') as file:
+        file.write("Identical name, different hash;{};{};copied with suffix\n".format(file_name, new_target_file_path))
 
 
 def organise(root_folder):
@@ -158,9 +205,7 @@ def organise(root_folder):
     global file_count
     global duplicate_count
     global potential_duplicate_count
-    image_file_extensions = ('jpg', 'jpeg', 'heic')
-
-    print(root_folder)
+    
     organised_folder = "G:\\2013-fotos-video-organised"
 
     if not os.path.exists(organised_folder):
@@ -189,13 +234,35 @@ def organise(root_folder):
                     os.makedirs(destination_folder)
                 smart_copy(file_path, destination_folder)
 
+
+def test():
+    
+    #Test same picture, different hash but same date in exif & size diff < 8192bytes
+    print ("Picture with different hash and same timestamp in metadata: {}".format(has_same_timestamp_in_metadata(
+                    "D:/test/same-picture-diff-hash/1/IMG_4858.JPG",
+                    "D:/test/same-picture-diff-hash/2/IMG_4858.JPG")))
+    
+    print ("Picture with different hash & similar fize size: {}".format(has_similar_filesize(
+                    "D:/test/same-picture-diff-hash/1/IMG_4858.JPG",
+                    "D:/test/same-picture-diff-hash/2/IMG_4858.JPG"
+    )))
+    
+    print ("Video with different hash & same timestamp in metadata: {}".format(has_same_timestamp_in_metadata(
+                    "D:/test/same-video-diff-hash/1/MVI_4852.MOV",
+                    "D:/test/same-video-diff-hash/2/MVI_4852.MOV")))
+    
+    print ("Video with different hash & similar fize size: {}".format(has_similar_filesize(
+                    "D:/test/same-video-diff-hash/1/MVI_4852.MOV",
+                    "D:/test/same-video-diff-hash/2/MVI_4852.MOV"
+    )))
+    
+    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
+    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2017/20170528_140336.mp4"))
+    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2022/08/Oostenrijk 2022/Panasonic/P1100525.MP4"))    
+
 if __name__ == "__main__":
-
-    #print(exif_header_contains_geolocation("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817.JPG"))
-    #print(exif_header_contains_geolocation("G:\\2013-fotos-video-organised\\2013\\photos\\08\\IMG_4817_ud486.JPG"))
-    #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4842.JPG"))
-    #print (has_same_datetime_in_exif("G:\\2013-fotos-video-organised\\2013\photos\\08\\IMG_4842.JPG", "D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
-
+    #test()
+    
     rootFolder = sys.argv[1]
     if os.path.exists(rootFolder):
         organise(rootFolder)
