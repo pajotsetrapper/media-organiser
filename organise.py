@@ -238,7 +238,7 @@ def smart_copy(file_path, target_folder):
     _log(log_file, "Identical name, different hash;{};{};copied with suffix\n".format(file_name, new_target_file_path))
 
 
-def organise(source_folder, destination_folder):
+def organise(source_folder, organised_folder):
     global log_file
     global file_count
     global duplicate_count
@@ -250,7 +250,7 @@ def organise(source_folder, destination_folder):
             (year_folder, month_folder) = get_year_month_taken(file_path)
             if (file.lower().endswith(".jpg")):
                 print("P", end="")
-                destination_folder = os.path.join(destination_folder, year_folder, "photos", month_folder)
+                destination_folder = os.path.join(organised_folder, year_folder, "photos", month_folder)
                 if not os.path.exists(destination_folder):
                     os.makedirs(destination_folder)
                 smart_copy(file_path, destination_folder)
@@ -258,7 +258,7 @@ def organise(source_folder, destination_folder):
             else: #Also copy over non-jpg files (video etc)
                 print("M", end="")
                 year_folder, month_folder = get_year_month_taken(file_path)
-                destination_folder = os.path.join(destination_folder, year_folder , "movies", month_folder)
+                destination_folder = os.path.join(organised_folder, year_folder , "movies", month_folder)
                 if not os.path.exists(destination_folder):
                     os.makedirs(destination_folder)
                 smart_copy(file_path, destination_folder)
