@@ -6,6 +6,7 @@ import ffmpeg
 
 log_file = None
 file_count = 0
+skipped_filetype_count = 0
 duplicate_count = 0
 potential_duplicate_count = 0
 
@@ -44,7 +45,7 @@ def _get_timestamp_from_exif(file_path):
     for key, value in exif.items():
         name = TAGS.get(key, key)
         if name == 'DateTimeOriginal':
-            return value
+            return(value.replace("-", ":")) #Was required as in exception cases, the delimier for yyyy:mm:dd is '-' iso ':'
 
 def _get_timestamp_from_video_metadata(file_path):
     """Tries to obtain a timestamp from metadata available in a media file.
@@ -147,7 +148,6 @@ def has_same_timestamp_in_metadata(file1_path, file2_path):
     file2_timestamp = get_timestamp_from_metadata(file2_path)
 
     if ((file1_timestamp==None) or (file2_timestamp == None)):
-        print ("  -> One of the timestamps is None -> return False")
         return False #There is no metadata, so cannot compare -> return False
     return file1_timestamp == file2_timestamp
 
@@ -219,12 +219,11 @@ def smart_copy(file_path, target_folder):
         # -> ensuring to keep the file with geolocation data only
 
         if exif_header_contains_geolocation(target_file_path):
-            _log(log_file, "Suspecting duplicate with high certainty - same exif timestamp & similar size. Target already has gps data;{};{};skipped\n".format(file_name, target_folder))
+            _log(log_file, "Suspecting duplicate with high certainty - same exif timestamp & similar size. Target already has gps data;{};{};skipped\n".format(file_path, target_folder))
             return
         else:
             if exif_header_contains_geolocation(file_path):
-                with open(log_file, 'a') as file:
-                    file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_name, target_folder))
+                _log(log_file, "Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_path, target_folder))
                 shutil.copy(file_path, target_file_path)
                 return
         return #Don't omit this!
@@ -237,15 +236,24 @@ def smart_copy(file_path, target_folder):
     new_filename = fn + suffix + ext
     new_target_file_path = os.path.join(target_folder, new_filename)
     shutil.copy(file_path, new_target_file_path)
-    _log(log_file, "Identical name, different hash;{};{};copied with suffix\n".format(file_name, new_target_file_path))
+    _log(log_file, "Identical name, different hash;{};{};copied with suffix\n".format(file_path, new_target_file_path))
 
 
 def organise(source_folder, organised_folder):
     global file_count
+    global skipped_filetype_count
+    global log_file
+    file_extensions_to_skip = ('.ini', '.db')
     for subdir, dirs, files in os.walk(source_folder):
         for file in files:
             file_count+=1
             file_path = os.path.join(subdir, file)
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in file_extensions_to_skip:
+                _log(log_file, "File skipped based on extension;{};{};skipped\n".format(file_path, ""))
+                skipped_filetype_count+=1
+                continue #skip the file
+
             (year_folder, month_folder) = get_year_month_taken(file_path)
             if (file.lower().endswith(".jpg")):
                 print("P", end="")
@@ -277,8 +285,9 @@ if __name__ == "__main__":
             sys.exit(-1)
 
     log_file = os.path.join(destination_folder, "media-organiser.log")
-    _log(log_file, "Brought some structure in {}\n".format(source_folder))
+    _log(log_file, "\nBrought some structure in {}\n".format(source_folder))
     organise(source_folder, destination_folder)
-    _log(log_file, "# files processed: {}".format(file_count))
+    _log(log_file, "\n# files processed: {}".format(file_count))
+    _log(log_file, "\n# files skipped because to extension: {}".format(skipped_filetype_count))
     _log(log_file, "\n# duplicate files: {}".format(duplicate_count))
     _log(log_file, "\n# potentially duplicate files: {}".format(potential_duplicate_count))
