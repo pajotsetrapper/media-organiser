@@ -145,9 +145,10 @@ def has_same_timestamp_in_metadata(file1_path, file2_path):
     """
     file1_timestamp = get_timestamp_from_metadata(file1_path)
     file2_timestamp = get_timestamp_from_metadata(file2_path)
-    if ((file1_timestamp==None) or (file2_timestamp == None)):
-        return False #There is no metadata, so cannot compare -> return False
 
+    if ((file1_timestamp==None) or (file2_timestamp == None)):
+        print ("  -> One of the timestamps is None -> return False")
+        return False #There is no metadata, so cannot compare -> return False
     return file1_timestamp == file2_timestamp
 
 def get_year_month_taken(file_path):
@@ -226,6 +227,7 @@ def smart_copy(file_path, target_folder):
                     file.write("Suspecting duplicate with high certainty - same exif timestamp & similar size. Overwriting target as source additionally has GPS data;{};{};replaced\n".format(file_name, target_folder))
                 shutil.copy(file_path, target_file_path)
                 return
+        return #Don't omit this!
     else:
         if has_similar_filesize(file_path, target_file_path):
             potential_duplicate_count+=1
@@ -259,31 +261,6 @@ def organise(source_folder, organised_folder):
                 if not os.path.exists(destination_folder):
                     os.makedirs(destination_folder)
                 smart_copy(file_path, destination_folder)
-
-def test():
-
-    #Test same picture, different hash but same date in exif & size diff < 8192bytes
-    print ("Picture with different hash and same timestamp in metadata: {}".format(has_same_timestamp_in_metadata(
-                    "D:/test/same-picture-diff-hash/1/IMG_4858.JPG",
-                    "D:/test/same-picture-diff-hash/2/IMG_4858.JPG")))
-
-    print ("Picture with different hash & similar fize size: {}".format(has_similar_filesize(
-                    "D:/test/same-picture-diff-hash/1/IMG_4858.JPG",
-                    "D:/test/same-picture-diff-hash/2/IMG_4858.JPG"
-    )))
-
-    print ("Video with different hash & same timestamp in metadata: {}".format(has_same_timestamp_in_metadata(
-                    "D:/test/same-video-diff-hash/1/MVI_4852.MOV",
-                    "D:/test/same-video-diff-hash/2/MVI_4852.MOV")))
-
-    print ("Video with different hash & similar fize size: {}".format(has_similar_filesize(
-                    "D:/test/same-video-diff-hash/1/MVI_4852.MOV",
-                    "D:/test/same-video-diff-hash/2/MVI_4852.MOV"
-    )))
-
-    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2013/sorteren/118___08/IMG_4840.JPG"))
-    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2017/20170528_140336.mp4"))
-    print(get_timestamp_from_metadata("D:/02-foto/Sorting/Album-2022/08/Oostenrijk 2022/Panasonic/P1100525.MP4"))
 
 if __name__ == "__main__":
     #test()
