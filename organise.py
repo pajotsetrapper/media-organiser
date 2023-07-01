@@ -239,10 +239,7 @@ def smart_copy(file_path, target_folder):
 
 
 def organise(source_folder, organised_folder):
-    global log_file
     global file_count
-    global duplicate_count
-    global potential_duplicate_count
     for subdir, dirs, files in os.walk(source_folder):
         for file in files:
             file_count+=1
